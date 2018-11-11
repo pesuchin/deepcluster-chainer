@@ -11,6 +11,7 @@ The paper of this wonderful model is below.
 [Deep Clustering for Unsupervised Learning of Visual Features](https://arxiv.org/abs/1807.05520)
 
 - [x] Evaluator
+- [ ] Feature that select your data 
 - [ ] Model implementation
 - [ ] hyper-parameter tuning
 - [ ] Prepare the Demo
@@ -20,6 +21,20 @@ The paper of this wonderful model is below.
 ## Requirement
 
 ## Usage
+
+```
+$ python train.py [dataset_name] [--output_dir 'result'] [--batchsize 256] [--epoch 300] [--gpu 0]
+
+for example:
+$ python train.py mnist --output_dir='result/mnist/' --epoch 50
+```
+
+support dataset is bellow:
+
+- mnist
+- fashion-mnist
+- CIFAR 10
+- CIFAR 100
 
 ## Install
 
