@@ -190,7 +190,7 @@ def main():
     parser.add_argument('--epoch', default=300, type=int, help='epoch number')
     parser.add_argument('--fully_output_size', default=100, type=int, help='fully connected unit size')
     parser.add_argument('--pca_dim', default=128, type=int, help='pca output dims')
-    parser.add_argument('--verbose', default=False, type=bool, help='print hidden size')
+    parser.add_argument('--verbose', action='store_true', help='print hidden size')
     parser.add_argument('--gpu', default=0, type=int, help='gpu id')
     args = parser.parse_args()
 
