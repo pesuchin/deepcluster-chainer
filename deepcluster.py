@@ -12,8 +12,12 @@ from scipy.ndimage.interpolation import rotate
 
 # 参考: https://github.com/chainer/chainer/blob/master/examples/imagenet/alex.py
 class DeepClustering(chainer.Chain):
-    def __init__(self, all_img, output_size, train=True):
+    def __init__(self, all_img, pca_dim, fully_output_size, output_size, 
+                 verbose=False, sobel=True, use_pca=True, train=True):
         super(DeepClustering, self).__init__()
+        self.sobel = sobel
+        self.use_pca = use_pca
+        self.verbose = verbose
         with self.init_scope():
             self.batchnorm = L.BatchNormalization(96)
             self.batchnorm2 = L.BatchNormalization(256)
@@ -22,23 +26,39 @@ class DeepClustering(chainer.Chain):
             self.conv3 = L.Convolution2D(None, 384,  3, pad=1)
             self.conv4 = L.Convolution2D(None, 384,  3, pad=1)
             self.conv5 = L.Convolution2D(None, 256,  3, pad=1)
-            self.fc6 = L.Linear(None, 4096)
-            self.fc7 = L.Linear(None, 4096)
+            self.fc6 = L.Linear(None, fully_output_size)
+            self.fc7 = L.Linear(None, fully_output_size)
             self.fc8 = L.Linear(None, output_size)
+            if self.sobel:
+                weight = np.ones((1, 3, 1, 1)) / 3
+                self.grayscale = L.Convolution2D(3, 1, ksize=1, stride=1,
+                                                 pad=0,
+                                                 initialW=weight,
+                                                 initial_bias=None) 
+                sobel_weight = np.array([[[[1, 0, -1],
+                                           [2, 0, -2],
+                                           [1, 0, -1]]],
+                                         [[[1, 2, 1],
+                                           [0, 0, 0],
+                                           [-1, -2, -1]]]])
+                self.sobel_filter = L.Convolution2D(1, 2, ksize=3, stride=1,
+                                                    pad=1,
+                                                    initialW=sobel_weight,
+                                                    initial_bias=None)
+                
         if train:
             x = chainer.cuda.to_cpu(all_img)
             features = self.feature_extraction(x)
             self.ncentroids = output_size
-            self.d = 256
+            self.d = pca_dim
             self.kmeans_for_all(features, self.ncentroids, d=self.d)
             self.all_img = chainer.cuda.to_gpu(all_img)
             self.prev_pred = None
+            self.random_crop = (28, 28)
 
-    def __call__(self, i):
-        x = self.all_img[i]
-        # data augumentation
-        if np.random.random() > 0.5:
-            x = F.flip(x, 2)
+    def __call__(self, img, i):
+        #x = self.all_img[i]
+        x = img
 
         pred, _ = self.predict(x)
 
@@ -46,8 +66,7 @@ class DeepClustering(chainer.Chain):
         pseudo_labels = chainer.cuda.to_cpu(self.pseudo_labels[i])
         pseudo_labels = np.append(pseudo_labels, [self.ncentroids])
         class_weight = np.bincount(pseudo_labels)[:self.ncentroids]
-        class_weight[class_weight == 0] = 1.0
-        class_weight = (1.0 / class_weight).astype('float32')
+        class_weight = (1.0 / (class_weight + 1e-5)).astype('float32')
         class_weight = chainer.cuda.to_gpu(class_weight)
 
         self.loss = F.softmax_cross_entropy(pred, self.pseudo_labels[i], 
@@ -55,11 +74,16 @@ class DeepClustering(chainer.Chain):
 
         chainer.report({'loss': self.loss,
                        'accuracy': F.accuracy(pred, self.pseudo_labels[i])},
-                        self)
+                       self)
 
         return self.loss
 
     def predict(self, x):
+        if self.sobel:
+            with chainer.using_config('train', False) \
+               , chainer.no_backprop_mode():
+                x = self.grayscale(x)
+                x = self.sobel_filter(x)
         feature = F.max_pooling_2d(
             self.batchnorm(F.relu(self.conv1(x))), 3, stride=2)
         feature = F.max_pooling_2d(
@@ -68,13 +92,22 @@ class DeepClustering(chainer.Chain):
         h = F.relu(self.conv4(feature))
         h = F.relu(self.conv5(feature))
         h = F.max_pooling_2d(h, 3, stride=2, pad=1)
-        h = F.dropout(F.relu(self.fc6(h)), ratio=.5)
-        h = F.dropout(F.relu(self.fc7(h)), ratio=.5)
+        if self.verbose:
+            print('max_pool:', h.shape)
+        h = F.dropout(F.relu(self.fc6(h)), ratio=0.5)
+        if self.verbose:
+            print('fc6:', h.shape)
+        h = F.dropout(F.relu(self.fc7(h)), ratio=0.5)
+        if self.verbose:
+            print('fc7:', h.shape)
         self.pred = self.fc8(h)
         return self.pred, feature
 
     def feature_extraction(self, x):
         with chainer.using_config('train', False), chainer.no_backprop_mode():
+            if self.sobel:
+                x = self.grayscale(x)
+                x = self.sobel_filter(x)
             feature = F.max_pooling_2d(F.local_response_normalization(
                                        F.relu(self.conv1(x))), 3, stride=2)
             feature = F.max_pooling_2d(F.local_response_normalization(
@@ -112,15 +145,22 @@ class DeepClustering(chainer.Chain):
 
         # perform the training
         clus.train(x, self.index)
-        _, I = self.index.search(x, 1)
+        _, labels = self.index.search(x, 1)
         losses = faiss.vector_to_array(clus.obj)
-        # print('k-means loss evolution: {0}'.format(losses))
-        return I.ravel(), losses[-1]
+        if self.verbose:
+            print('k-means loss evolution: {0}'.format(losses))
+        return labels.ravel(), losses[-1]
 
     def kmeans_for_all(self, feature, k, d=256):
         # PCA size->256
         # also does a random rotation after the reduction (the 4th argument)
-        x = self.apply_pca(feature, d)
+        if self.use_pca:
+            x = self.apply_pca(feature, d)
+        else:
+            x = feature
+            data_size, C, W, H = x.data.shape
+            feature_size = C * W * H
+            x = x.data.reshape([data_size, feature_size])
 
         I, self.clustering_loss = self.run_kmeans(x, k)
 
