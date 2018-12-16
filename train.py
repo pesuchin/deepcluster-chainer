@@ -13,8 +13,6 @@ from sklearn.metrics.cluster import normalized_mutual_info_score
 from chainer.datasets import TransformDataset
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from PIL import Image
-import pathlib
 mpl.use('Agg')
 
 
@@ -26,7 +24,7 @@ class MnistDataset(dataset_mixin.DatasetMixin):
         return len(self.img)
 
     def get_example(self, i):
-        return self.img[i], i
+        return i
 
 
 class CalculateNMI(chainer.training.Extension):
@@ -61,7 +59,8 @@ class CalculateNMI(chainer.training.Extension):
             os.makedirs(file_path)
 
         test_images = chainer.cuda.to_cpu(self.test_data)
-        for class_index in range(self.model.ncentroids):
+        # for class_index in range(self.model.ncentroids):
+        for class_index in range(10):
             fig = plt.figure()
             sample_images = test_images[(class_index == np.array(pred))][:6]
             for i in range(sample_images.shape[0]):
@@ -96,16 +95,6 @@ def dataset_preprocess(train, test):
     return dataset, y, test_dataset, test_y
 
 
-def resize_image(img, size=(224, 224)):
-    w, h = img.size
-    img = img.resize((int(w * (size[1] / h)), size[1]))
-    img = np.array(img, dtype=np.float32)
-    ch, h, w = img.shape
-    offset_w = (w - size[0]) // 2
-    img = img[:, offset_w:offset_w+size[0], :]
-    return img
-
-
 def cutout(image_origin, mask_size):
     image = np.copy(image_origin)
     mask_value = image.mean()
@@ -125,59 +114,65 @@ def cutout(image_origin, mask_size):
     return image
 
 
+def resize_image(img, size=(224, 224)):
+    w, h = img.size
+    img = img.resize((int(w * (size[1] / h)), size[1]))
+    img = np.array(img, dtype=np.float32)
+    ch, h, w = img.shape
+    offset_w = (w - size[0]) // 2
+    img = img[:, offset_w:offset_w+size[0], :]
+    return img
+
+
+def center_crop(img, size, return_param=False, copy=False):
+    _, H, W = img.shape
+    oH, oW = size
+    if oH > H or oW > W:
+        raise ValueError('shape of image needs to be larger than size')
+
+    y_offset = int(round((H - oH) / 2.))
+    x_offset = int(round((W - oW) / 2.))
+
+    y_slice = slice(y_offset, y_offset + oH)
+    x_slice = slice(x_offset, x_offset + oW)
+
+    img = img[:, y_slice, x_slice]
+
+    if copy:
+        img = img.copy()
+
+    if return_param:
+        return img, {'y_slice': y_slice, 'x_slice': x_slice}
+    else:
+        return img
+
+
 def transform(x, angle_range=(0, 30)):
-    mean=[0.485, 0.456, 0.406]
-    std=[0.229, 0.224, 0.225]
+    mean = [0.485, 0.456, 0.406]
+    std = [0.229, 0.224, 0.225]
     for t, m, s in zip(x, mean, std):
         t = (t - m) / s
+    # x = center_crop(x, (224, 224))
     x = x.transpose(1, 2, 0)
-    #h, w, _ = x.shape
+    # h, w, _ = x.shape
 
-    #angle = np.random.randint(*angle_range)
-    #if np.random.rand() > 0.5:
-    #    x = rotate(x, angle)
-    #    x = imresize(x, (h, w))
+    # angle = np.random.randint(*angle_range)
+    # if np.random.rand() > 0.5:
+    #     x = rotate(x, angle)
+    #     x = imresize(x, (h, w))
+
+    # if np.random.rand() > 0.5:
+    #     cutout(x, 5)
     
-    #if np.random.rand() > 0.5:
-    #    cutout(x, 5)
-    
-    #x_offset = np.random.randint(4)
-    #y_offset = np.random.randint(4)
-    #x = x[y_offset:y_offset + h - 4,
-    #      x_offset:x_offset + w - 4]
+    # x_offset = np.random.randint(4)
+    # y_offset = np.random.randint(4)
+    # x = x[y_offset:y_offset + h - 4,
+    #       x_offset:x_offset + w - 4]
     if np.random.rand() > 0.5:
         x = np.fliplr(x)
 
     x = x.transpose(2, 0, 1)
     return x
-
-
-def read_image_as_array(abs_dir='./data/images/'):
-    dataset = []
-    test_dataset = []
-    y = []
-    label_dict = {}
-    image_list = [str(path) for path in pathlib.Path(abs_dir).glob('*.jpg')]
-    n_images = len(image_list)
-    for index in range(n_images):
-        path = image_list[index]
-        try:
-            image = Image.open(path)
-            print(np.array(image).shape)
-            image = resize_image(image)
-        except OSError:
-            pathlib.Path(path).unlink()
-            continue
-        if n_images // 8 < index:
-            dataset.append([image])
-        else:
-            test_dataset.append([image])
-        label = path.split('_')[0]
-        if label in label_dict:
-            y.append(label_dict[label])
-        else:
-            label_dict[label] = len(label_dict)
-    return dataset, test_dataset, y
 
 
 def main():
@@ -188,9 +183,9 @@ def main():
                         help='output directory path')
     parser.add_argument('--batchsize', default=256, type=int, help='image batchsize')
     parser.add_argument('--epoch', default=300, type=int, help='epoch number')
-    parser.add_argument('--fully_output_size', default=100, type=int, help='fully connected unit size')
+    parser.add_argument('--fully_output_size', default=4096, type=int, help='fully connected unit size')
     parser.add_argument('--pca_dim', default=128, type=int, help='pca output dims')
-    parser.add_argument('--verbose', action='store_true', help='print hidden size')
+    parser.add_argument('--verbose', default=False, type=bool, help='print hidden size')
     parser.add_argument('--gpu', default=0, type=int, help='gpu id')
     args = parser.parse_args()
 
@@ -219,8 +214,6 @@ def main():
         output_size = 100
         sobel = True
         dataset, y, test_dataset, test_y = dataset_preprocess(train, test)
-    elif args.dataset_name == 'imagenet':
-        dataset, test_dataset, y = read_image_as_array()
     else:
         raise('Not Found Dataset')
 
@@ -242,7 +235,7 @@ def main():
     optimizer = chainer.optimizers.MomentumSGD(momentum=0.9)
     optimizer.setup(model)
     optimizer.add_hook(chainer.optimizer.WeightDecay(1e-4))
-   
+
     train_iter = iterators.MultiprocessIterator(train_dataset, args.batchsize,
                                                 repeat=True, shuffle=True,
                                                 n_processes=4)

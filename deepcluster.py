@@ -2,12 +2,7 @@ import chainer
 import numpy as np
 import chainer.links as L
 import chainer.functions as F
-from chainer import cuda, optimizers, serializers, Variable
-import math
-import six
-from chainer.links.caffe.protobuf3 import caffe_pb2 as caffe_pb
 import faiss
-from scipy.ndimage.interpolation import rotate
 
 
 # 参考: https://github.com/chainer/chainer/blob/master/examples/imagenet/alex.py
@@ -19,8 +14,6 @@ class DeepClustering(chainer.Chain):
         self.use_pca = use_pca
         self.verbose = verbose
         with self.init_scope():
-            self.batchnorm = L.BatchNormalization(96)
-            self.batchnorm2 = L.BatchNormalization(256)
             self.conv1 = L.Convolution2D(None,  96, 11, stride=4)
             self.conv2 = L.Convolution2D(None, 256,  5, pad=2)
             self.conv3 = L.Convolution2D(None, 384,  3, pad=1)
@@ -54,13 +47,12 @@ class DeepClustering(chainer.Chain):
             self.kmeans_for_all(features, self.ncentroids, d=self.d)
             self.all_img = chainer.cuda.to_gpu(all_img)
             self.prev_pred = None
-            self.random_crop = (28, 28)
 
     def __call__(self, img, i):
-        #x = self.all_img[i]
+        # x = self.all_img[i]
         x = img
 
-        pred, _ = self.predict(x)
+        pred = self.predict(x)
 
         # P.6 trival parametrization solution
         pseudo_labels = chainer.cuda.to_cpu(self.pseudo_labels[i])
@@ -84,22 +76,16 @@ class DeepClustering(chainer.Chain):
                , chainer.no_backprop_mode():
                 x = self.grayscale(x)
                 x = self.sobel_filter(x)
-        feature = F.max_pooling_2d(
-            self.batchnorm(F.relu(self.conv1(x))), 3, stride=2)
-        feature = F.max_pooling_2d(
-            self.batchnorm2(F.relu(self.conv2(feature))), 3, stride=2)
+        feature = F.max_pooling_2d(F.local_response_normalization(
+                                   F.relu(self.conv1(x))), 3, stride=2)
+        feature = F.max_pooling_2d(F.local_response_normalization(
+                                   F.relu(self.conv2(feature))), 3, stride=2)
         feature = F.relu(self.conv3(feature))
         h = F.relu(self.conv4(feature))
         h = F.relu(self.conv5(feature))
         h = F.max_pooling_2d(h, 3, stride=2, pad=1)
-        if self.verbose:
-            print('max_pool:', h.shape)
         h = F.dropout(F.relu(self.fc6(h)), ratio=0.5)
-        if self.verbose:
-            print('fc6:', h.shape)
         h = F.dropout(F.relu(self.fc7(h)), ratio=0.5)
-        if self.verbose:
-            print('fc7:', h.shape)
         self.pred = self.fc8(h)
         return self.pred, feature
 
