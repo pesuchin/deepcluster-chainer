@@ -23,7 +23,7 @@ The paper of this wonderful model is below.
 ## Usage
 
 ```
-$ python train.py [dataset_name] [--output_dir 'result'] [--batchsize 256] [--epoch 300] [--gpu 0]
+$ python train.py [dataset_name] [--output_dir 'result'] [--batchsize 256] [--epoch 300] [--gpu 0] [--fully_output_size 100] [--pca_dim 128] [--verbose] [--gpu]
 
 for example:
 $ python train.py mnist --output_dir='result/mnist/' --epoch 50
