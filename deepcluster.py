@@ -74,7 +74,7 @@ class DeepClustering(chainer.Chain):
         return self.loss
 
     def predict(self, x):
-        feature = self.feature_extraction(self, x)
+        feature = self.feature_extraction(x)
         h = F.max_pooling_2d(feature, 3, stride=2, pad=1)
         h = F.dropout(F.relu(self.fc6(h)), ratio=0.5)
         h = F.dropout(F.relu(self.fc7(h)), ratio=0.5)
