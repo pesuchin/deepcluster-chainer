@@ -43,7 +43,9 @@ class DeepClustering(chainer.Chain):
                 
         if train:
             x = chainer.cuda.to_cpu(all_img)
-            features = self.feature_extraction(x)
+            with chainer.using_config('train', False), \
+                    chainer.no_backprop_mode():
+                features = self.feature_extraction(x)
             self.ncentroids = output_size
             self.d = pca_dim
             self.kmeans_for_all(features, self.ncentroids, d=self.d)
