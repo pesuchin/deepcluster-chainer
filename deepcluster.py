@@ -14,6 +14,8 @@ class DeepClustering(chainer.Chain):
         self.use_pca = use_pca
         self.verbose = verbose
         with self.init_scope():
+            self.batchnorm = L.BatchNormalization(96)
+            self.batchnorm2 = L.BatchNormalization(256)
             self.conv1 = L.Convolution2D(None,  96, 11, stride=4)
             self.conv2 = L.Convolution2D(None, 256,  5, pad=2)
             self.conv3 = L.Convolution2D(None, 384,  3, pad=1)
@@ -71,41 +73,31 @@ class DeepClustering(chainer.Chain):
         return self.loss
 
     def predict(self, x):
-        if self.sobel:
-            with chainer.using_config('train', False) \
-               , chainer.no_backprop_mode():
-                x = self.grayscale(x)
-                x = self.sobel_filter(x)
-        feature = F.max_pooling_2d(F.local_response_normalization(
-                                   F.relu(self.conv1(x))), 3, stride=2)
-        feature = F.max_pooling_2d(F.local_response_normalization(
-                                   F.relu(self.conv2(feature))), 3, stride=2)
-        feature = F.relu(self.conv3(feature))
-        h = F.relu(self.conv4(feature))
-        h = F.relu(self.conv5(feature))
-        h = F.max_pooling_2d(h, 3, stride=2, pad=1)
+        feature = self.feature_extraction(self, x)
+        h = F.max_pooling_2d(feature, 3, stride=2, pad=1)
         h = F.dropout(F.relu(self.fc6(h)), ratio=0.5)
         h = F.dropout(F.relu(self.fc7(h)), ratio=0.5)
-        self.pred = self.fc8(h)
-        return self.pred, feature
+        pred = self.fc8(h)
+        return pred
 
     def feature_extraction(self, x):
         with chainer.using_config('train', False), chainer.no_backprop_mode():
             if self.sobel:
                 x = self.grayscale(x)
                 x = self.sobel_filter(x)
-            feature = F.max_pooling_2d(F.local_response_normalization(
-                                       F.relu(self.conv1(x))), 3, stride=2)
-            feature = F.max_pooling_2d(F.local_response_normalization(
-                F.relu(self.conv2(feature))), 3, stride=2)
-            feature = F.relu(self.conv3(feature))
-            feature = F.relu(self.conv4(feature))
+        feature = F.max_pooling_2d(
+            self.batchnorm(F.relu(self.conv1(x))), 3, stride=2)
+        feature = F.max_pooling_2d(
+            self.batchnorm2(F.relu(self.conv2(feature))), 3, stride=2)
+        feature = F.relu(self.conv3(feature))
+        feature = F.relu(self.conv4(feature))
         return feature
 
     def apply_pca(self, feature, out_dim):
         data_size, C, W, H = feature.data.shape
         feature_size = C * W * H
-        mt = chainer.cuda.to_cpu(feature.data.reshape([data_size, feature_size]))
+        flat_feature = feature.data.reshape([data_size, feature_size])
+        mt = chainer.cuda.to_cpu(flat_feature)
         self.mat = faiss.PCAMatrix(feature_size, out_dim)
         self.mat.train(mt)
         assert self.mat.is_trained

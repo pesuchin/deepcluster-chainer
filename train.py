@@ -39,8 +39,7 @@ class CalculateNMI(chainer.training.Extension):
 
     def __call__(self, trainer):
         with chainer.using_config('train', False), chainer.no_backprop_mode():
-            pred, features = self.model.predict(self.test_data)
-            features = chainer.cuda.to_cpu(features.data)
+            pred = self.model.predict(self.test_data)
             pred = F.softmax(pred)
             pred = [np.argmax(pred_label) for pred_label in chainer.cuda.to_cpu(pred.data)]
             if self.model.prev_pred is None:
@@ -78,7 +77,8 @@ def kmeans_train(all_img):
     def _kmeans_train(trainer):
         model = trainer.updater.get_optimizer('main').target
         model.to_cpu()
-        features = model.feature_extraction(all_img)
+        with chainer.using_config('train', False), chainer.no_backprop_mode():
+            features = model.feature_extraction(all_img)
         model.kmeans_for_all(features, model.ncentroids, d=model.d)
         model.to_gpu()
     return _kmeans_train
