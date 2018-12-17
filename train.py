@@ -12,8 +12,8 @@ import numpy as np
 from sklearn.metrics.cluster import normalized_mutual_info_score
 from chainer.datasets import TransformDataset
 import matplotlib as mpl
-import matplotlib.pyplot as plt
 mpl.use('Agg')
+import matplotlib.pyplot as plt
 
 
 class MnistDataset(dataset_mixin.DatasetMixin):
