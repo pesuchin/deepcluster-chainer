@@ -24,7 +24,7 @@ class MnistDataset(dataset_mixin.DatasetMixin):
         return len(self.img)
 
     def get_example(self, i):
-        return i
+        return self.img[i], i
 
 
 class CalculateNMI(chainer.training.Extension):

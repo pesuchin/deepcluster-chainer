@@ -53,7 +53,6 @@ class DeepClustering(chainer.Chain):
             self.prev_pred = None
 
     def __call__(self, img, i):
-        # x = self.all_img[i]
         x = img
 
         pred = self.predict(x)
